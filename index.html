@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Exact Find">
+<meta name="theme-color" content="#14213d">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="167x167" href="icon-167.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Exact Find</title>
+<style>
+:root{
+  --bg:#e8ecf1; --card:#ffffff; --ink:#14213d; --mute:#5b667a; --line:#cdd5e0;
+  --accent:#2447f5; --accent-ink:#ffffff; --ok:#12805c; --warn:#b4540a;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0d1424; --card:#16203a; --ink:#e8ecf5; --mute:#98a3bb; --line:#2a3656; --accent:#6d86ff; --accent-ink:#0d1424; --ok:#4cd6a6; --warn:#f2a05a}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font:16px/1.45 "Avenir Next","Segoe UI",system-ui,sans-serif;
+  padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+main{max-width:980px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:30px;line-height:1.1;margin:8px 0 4px;letter-spacing:-.02em}
+.sub{color:var(--mute);margin:0 0 18px;max-width:44ch}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.seg{display:flex;gap:6px;margin-bottom:12px}
+.seg button{
+  flex:1;padding:11px 6px;border:1px solid var(--line);background:transparent;color:var(--ink);
+  border-radius:10px;font:inherit;font-weight:600;cursor:pointer
+}
+.seg button[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+input[type=search],input[type=text]{
+  width:100%;padding:13px 14px;border-radius:10px;border:1px solid var(--line);
+  background:var(--bg);color:var(--ink);font:inherit;font-size:17px
+}
+input:focus,button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;align-items:center}
+.row label{display:flex;gap:8px;align-items:center;color:var(--mute);font-size:14px}
+#ext{width:110px;padding:9px 10px;font-size:15px}
+.go{
+  margin-top:12px;width:100%;padding:14px;border:0;border-radius:10px;background:var(--accent);
+  color:var(--accent-ink);font:inherit;font-size:17px;font-weight:700;cursor:pointer
+}
+.go:disabled{opacity:.6}
+.hint{font-size:13px;color:var(--mute);margin:10px 0 0}
+#status{margin:16px 2px 8px;color:var(--mute);font-size:14px;min-height:20px}
+#status b{color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.item{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.thumb{aspect-ratio:4/3;width:100%;object-fit:cover;background:var(--line);display:block;cursor:pointer;border:0}
+.thumb.ph{display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--mute);font-size:22px}
+.meta{padding:9px 10px 11px;display:flex;flex-direction:column;gap:4px;flex:1}
+.title{font-size:14px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.src{font-size:12px;color:var(--mute)}
+.acts{display:flex;gap:8px;margin-top:auto;padding-top:6px}
+.acts a,.acts button{
+  flex:1;text-align:center;font:inherit;font-size:13px;font-weight:600;padding:8px 4px;border-radius:8px;
+  border:1px solid var(--line);background:transparent;color:var(--ink);text-decoration:none;cursor:pointer
+}
+.acts a.p{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+dialog{border:0;border-radius:14px;padding:0;max-width:96vw;width:760px;background:var(--card);color:var(--ink)}
+dialog::backdrop{background:rgba(5,10,25,.7)}
+.vwrap{padding:12px}
+.vwrap img,.vwrap video{width:100%;max-height:70vh;object-fit:contain;border-radius:8px;background:#000}
+.vwrap iframe{width:100%;aspect-ratio:16/9;border:0;border-radius:8px;background:#000}
+.vbar{display:flex;gap:8px;margin-top:10px}
+.vbar a,.vbar button{flex:1;text-align:center;padding:11px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink);font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
+@media (prefers-reduced-motion:no-preference){.item{animation:in .25s ease-out both}@keyframes in{from{opacity:0}to{opacity:1}}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Exact Find</h1>
+  <p class="sub">Say what you want. You only get results that match every word you typed.</p>
+
+  <div class="panel">
+    <div class="seg" role="group" aria-label="What are you looking for">
+      <button type="button" data-k="image" aria-pressed="true">Picture</button>
+      <button type="button" data-k="video" aria-pressed="false">Video</button>
+      <button type="button" data-k="file" aria-pressed="false">File</button>
+    </div>
+    <input id="q" type="search" placeholder="e.g. red fox snow" enterkeyhint="search" autocomplete="off">
+    <div class="row">
+      <label><input type="checkbox" id="strict" checked> Exact match only</label>
+      <label id="extwrap" hidden>Type <input id="ext" type="text" placeholder="pdf, epub, zip" autocapitalize="off"></label>
+    </div>
+    <button class="go" id="go" type="button">Search</button>
+    <p class="hint">Use "quotes" for an exact phrase. Results come from Openverse, Wikimedia Commons and the Internet Archive: free, public sources that anyone can use without an account.</p>
+  </div>
+
+  <div id="status" role="status" aria-live="polite"></div>
+  <div class="grid" id="grid"></div>
+</main>
+
+<dialog id="dlg">
+  <div class="vwrap">
+    <div id="stage"></div>
+    <div class="vbar"><a id="open" target="_blank" rel="noopener">Open source page</a><button type="button" id="close">Close</button></div>
+  </div>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+let kind = 'image';
+
+document.querySelectorAll('.seg button').forEach(b => b.onclick = () => {
+  kind = b.dataset.k;
+  document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', x === b));
+  $('#extwrap').hidden = kind !== 'file';
+  $('#q').placeholder = kind === 'image' ? 'e.g. red fox snow' : kind === 'video' ? 'e.g. total solar eclipse 2017' : 'e.g. python cookbook';
+});
+$('#q').addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+$('#go').onclick = run;
+$('#close').onclick = () => { $('#dlg').close(); };
+$('#dlg').addEventListener('close', () => { $('#stage').innerHTML = ''; });
+
+// ---------- query handling ----------
+function parseTerms(q) {
+  const terms = [];
+  q.replace(/"([^"]+)"/g, (_, p) => { terms.push(p.toLowerCase().trim()); return ''; })
+   .split(/\s+/).filter(Boolean).forEach(w => terms.push(w.toLowerCase()));
+  return terms;
+}
+const stripHtml = s => (s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+const tidyTitle = t => (t || '').replace(/^File:/, '').replace(/\.[a-z0-9]{2,5}$/i, '').replace(/_/g, ' ');
+
+async function getJson(url, tries = 3) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 15000);
+    try {
+      const r = await fetch(url, { signal: ctl.signal });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return await r.json();
+    } catch (e) {
+      lastErr = e;
+      await new Promise(res => setTimeout(res, 600 * (i + 1)));
+    } finally { clearTimeout(t); }
+  }
+  throw lastErr;
+}
+const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+// ---------- sources ----------
+async function openverse(q) {
+  const j = await getJson(`https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&page_size=40`);
+  return (j.results || []).map(r => ({
+    title: r.title || 'Untitled', text: [r.title, (r.tags || []).map(t => t.name).join(' ')].join(' '),
+    thumb: r.thumbnail || r.url, full: r.url, page: r.foreign_landing_url || r.url,
+    src: 'Openverse' + (r.license ? ' · ' + r.license.toUpperCase() : ''), kind: 'image'
+  }));
+}
+
+async function commons(q, ftype, kindTag, extList) {
+  const u = 'https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrnamespace=6&gsrlimit=40'
+    + '&gsrsearch=' + encodeURIComponent(`filetype:${ftype} ${q}`)
+    + '&prop=imageinfo&iiprop=url|mime|extmetadata&iiurlwidth=480';
+  const j = await getJson(u);
+  const pages = Object.values((j.query && j.query.pages) || {}).sort((a, b) => a.index - b.index);
+  return pages.map(p => {
+    const ii = (p.imageinfo || [])[0]; if (!ii) return null;
+    const md = ii.extmetadata || {};
+    const desc = stripHtml(md.ImageDescription && md.ImageDescription.value);
+    const ext = (ii.url.split('.').pop() || '').toLowerCase();
+    if (extList && extList.length && !extList.includes(ext)) return null;
+    return {
+      title: tidyTitle(p.title), text: tidyTitle(p.title) + ' ' + desc,
+      thumb: ii.thumburl || '', full: ii.url, page: ii.descriptionurl, mime: ii.mime, ext,
+      src: 'Wikimedia Commons', kind: kindTag
+    };
+  }).filter(Boolean);
+}
+
+async function archive(q, mediatype, kindTag, extList) {
+  let query = `(${q.replace(/"/g, '\\"')}) AND mediatype:(${mediatype})`;
+  if (extList && extList.length) query += ` AND format:(${extList.join(' OR ')})`;
+  const ps = new URLSearchParams();
+  ps.set('q', query); ps.set('rows', '40'); ps.set('output', 'json'); ps.set('sort[]', 'downloads desc');
+  ['identifier', 'title', 'description', 'mediatype'].forEach(f => ps.append('fl[]', f));
+  const j = await getJson('https://archive.org/advancedsearch.php?' + ps.toString());
+  return ((j.response && j.response.docs) || []).map(d => ({
+    title: d.title || d.identifier,
+    text: (d.title || '') + ' ' + stripHtml(Array.isArray(d.description) ? d.description.join(' ') : d.description),
+    thumb: `https://archive.org/services/img/${d.identifier}`,
+    full: `https://archive.org/download/${d.identifier}`,
+    embed: kindTag === 'video' ? `https://archive.org/embed/${d.identifier}` : '',
+    page: `https://archive.org/details/${d.identifier}`,
+    src: 'Internet Archive', kind: kindTag, isArchive: true
+  }));
+}
+
+// ---------- run ----------
+async function run() {
+  try { await runInner(); } catch (e) { $('#status').textContent = 'Something went wrong: ' + (e.message || e) + '. Try again.'; $('#go').disabled = false; }
+}
+async function runInner() {
+  const q = $('#q').value.trim();
+  if (!q) { $('#q').focus(); return; }
+  const strict = $('#strict').checked;
+  const terms = parseTerms(q);
+  const plain = terms.map(t => t.includes(' ') ? `"${t}"` : t).join(' ');
+  const extList = kind === 'file' ? $('#ext').value.toLowerCase().split(/[\s,]+/).map(s => s.replace('.', '')).filter(Boolean) : [];
+
+  if (!navigator.onLine) { $('#status').textContent = 'You are offline. Connect to the internet and search again.'; return; }
+  $('#go').disabled = true; $('#grid').innerHTML = '';
+  $('#status').textContent = 'Searching…';
+
+  const jobs = kind === 'image'
+    ? [openverse(plain), commons(plain, 'bitmap', 'image'), archive(plain, 'image', 'image')]
+    : kind === 'video'
+    ? [commons(plain, 'video', 'video'), archive(plain, 'movies', 'video')]
+    : [archive(plain, extList.length ? 'texts OR software OR data OR audio OR image OR movies' : 'texts OR software OR data', 'file', extList),
+       commons(plain, 'office', 'file', extList), commons(plain, 'archive', 'file', extList)];
+
+  const names = kind === 'image' ? ['Openverse', 'Wikimedia', 'Internet Archive']
+    : kind === 'video' ? ['Wikimedia', 'Internet Archive'] : ['Internet Archive', 'Wikimedia', 'Wikimedia'];
+  const settled = await Promise.allSettled(jobs);
+  const failedNames = [...new Set(settled.map((s, i) => s.status === 'rejected' ? names[i] : null).filter(Boolean))];
+  const failed = failedNames.length;
+  let all = settled.flatMap(s => s.status === 'fulfilled' ? s.value : []);
+  const found = all.length;
+  const nterms = terms.map(norm);
+
+  if (strict) all = all.filter(it => { const h = norm(it.text); return nterms.every(t => h.includes(t)); });
+
+  // de-duplicate by link
+  const seen = new Set(); all = all.filter(it => !seen.has(it.full) && seen.add(it.full));
+  // interleave sources so no single source floods the page
+  const by = {}; all.forEach(it => (by[it.src.split(' ·')[0]] ||= []).push(it));
+  const lists = Object.values(by), mixed = [];
+  for (let i = 0; lists.some(l => i < l.length); i++) lists.forEach(l => l[i] && mixed.push(l[i]));
+
+  render(mixed);
+  let msg;
+  if (mixed.length) {
+    msg = `<b>${mixed.length}</b> exact result${mixed.length === 1 ? '' : 's'}` + (strict && found > mixed.length ? ` (hid ${found - mixed.length} that didn't match every word)` : '');
+  } else if (failed === jobs.length) {
+    msg = 'Could not reach any source. Check your connection, then <a href="#" id="retry">try again</a>.';
+  } else if (strict && found > 0) {
+    msg = `No result matched every word, but ${found} looser match${found === 1 ? '' : 'es'} exist. <a href="#" id="loose">Show them</a>`;
+  } else {
+    msg = 'Nothing found. Try fewer or different words.';
+  }
+  if (failed && failed < jobs.length) msg += ` · ${failedNames.join(', ')} didn't respond`;
+  $('#status').innerHTML = msg;
+  const rl = $('#retry'); if (rl) rl.onclick = e => { e.preventDefault(); run(); };
+  const ll = $('#loose'); if (ll) ll.onclick = e => { e.preventDefault(); $('#strict').checked = false; run(); };
+  $('#go').disabled = false;
+}
+
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+function render(items) {
+  $('#grid').innerHTML = items.map((it, i) => `
+    <div class="item">
+      ${it.thumb ? `<img class="thumb" loading="lazy" src="${esc(it.thumb)}" alt="" data-i="${i}" onerror="this.outerHTML='<div class=&quot;thumb ph&quot; data-i=&quot;${i}&quot;>${esc((it.ext || it.kind).toUpperCase())}</div>'">`
+                  : `<div class="thumb ph" data-i="${i}">${esc((it.ext || it.kind).toUpperCase())}</div>`}
+      <div class="meta">
+        <div class="title">${esc(it.title)}</div>
+        <div class="src">${esc(it.src)}${it.ext ? ' · .' + esc(it.ext) : ''}</div>
+        <div class="acts">
+          <button type="button" data-i="${i}">View</button>
+          <a class="p" href="${esc(it.full)}" target="_blank" rel="noopener">${it.isArchive && it.kind === 'file' ? 'Files' : 'Get'}</a>
+        </div>
+      </div>
+    </div>`).join('');
+  window.__items = items;
+}
+
+$('#grid').addEventListener('click', e => {
+  const el = e.target.closest('[data-i]'); if (!el) return;
+  const it = window.__items[+el.dataset.i]; if (!it) return;
+  const st = $('#stage');
+  if (it.kind === 'video' && it.embed) st.innerHTML = `<iframe src="${esc(it.embed)}" allowfullscreen></iframe>`;
+  else if (it.kind === 'video') st.innerHTML = `<video src="${esc(it.full)}" controls playsinline></video>`;
+  else if (it.kind === 'image') st.innerHTML = `<img src="${esc(it.full)}" alt="${esc(it.title)}">`;
+  else st.innerHTML = `<p><b>${esc(it.title)}</b></p><p class="src">${esc(it.src)}</p>`;
+  $('#open').href = it.page;
+  $('#dlg').showModal();
+});
+</script>
+</body>
+</html>
