@@ -73,6 +73,11 @@ dialog::backdrop{background:rgba(5,10,25,.7)}
 .vbar{display:flex;gap:8px;margin-top:10px}
 .vbar a,.vbar button{flex:1;text-align:center;padding:11px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--ink);font:inherit;font-weight:600;text-decoration:none;cursor:pointer}
 @media (prefers-reduced-motion:no-preference){.item{animation:in .25s ease-out both}@keyframes in{from{opacity:0}to{opacity:1}}}
+select{padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font:inherit;font-size:14px}
+.mini{margin-left:auto;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--ink);font:inherit;font-weight:600;cursor:pointer}
+.acts .star{flex:0 0 40px}
+#more{margin:16px 0 0}#more[hidden]{display:none}
+.vbar #prev,.vbar #next{flex:0 0 52px}
 </style>
 </head>
 <body>
@@ -89,20 +94,23 @@ dialog::backdrop{background:rgba(5,10,25,.7)}
     <input id="q" type="search" placeholder="e.g. red fox snow" enterkeyhint="search" autocomplete="off">
     <div class="row">
       <label><input type="checkbox" id="strict" checked> Exact match only</label>
+      <span id="imgonly" class="row" style="margin:0"><label>Shape <select id="shape"><option value="">Any</option><option value="wide">Wide</option><option value="tall">Tall</option><option value="square">Square</option></select></label><label><input type="checkbox" id="free"> Free to reuse</label></span>
+      <button type="button" class="mini" id="favbtn">★ Saved</button>
       <label id="extwrap" hidden>Type <input id="ext" type="text" placeholder="pdf, epub, zip" autocapitalize="off"></label>
     </div>
     <button class="go" id="go" type="button">Search</button>
-    <p class="hint">Use "quotes" for an exact phrase. Results come from Openverse, Wikimedia Commons and the Internet Archive: free, public sources that anyone can use without an account.</p>
+    <p class="hint">Use "quotes" for an exact phrase. Searches 13 free public libraries around the world (museums, archives, NASA, Europeana, PeerTube, Gutenberg and more). No account needed.</p>
   </div>
 
   <div id="status" role="status" aria-live="polite"></div>
   <div class="grid" id="grid"></div>
+  <button class="go" id="more" type="button" hidden>Load more</button>
 </main>
 
 <dialog id="dlg">
   <div class="vwrap">
     <div id="stage"></div>
-    <div class="vbar"><a id="open" target="_blank" rel="noopener">Open source page</a><button type="button" id="close">Close</button></div>
+    <div class="vbar"><button type="button" id="prev" aria-label="Previous">‹</button><a id="open" target="_blank" rel="noopener">Open source page</a><button type="button" id="close">Close</button><button type="button" id="next" aria-label="Next">›</button></div>
   </div>
 </dialog>
 
@@ -113,11 +121,11 @@ let kind = 'image';
 document.querySelectorAll('.seg button').forEach(b => b.onclick = () => {
   kind = b.dataset.k;
   document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', x === b));
-  $('#extwrap').hidden = kind !== 'file';
+  $('#extwrap').hidden = kind !== 'file'; $('#imgonly').hidden = kind !== 'image';
   $('#q').placeholder = kind === 'image' ? 'e.g. red fox snow' : kind === 'video' ? 'e.g. total solar eclipse 2017' : 'e.g. python cookbook';
 });
 $('#q').addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
-$('#go').onclick = run;
+$('#go').onclick = () => run();
 $('#close').onclick = () => { $('#dlg').close(); };
 $('#dlg').addEventListener('close', () => { $('#stage').innerHTML = ''; });
 
@@ -150,19 +158,20 @@ async function getJson(url, tries = 3) {
 const norm = s => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 // ---------- sources ----------
-async function openverse(q) {
-  const j = await getJson(`https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&page_size=40`);
+async function openverse(q, page = 1) {
+  const ar = $('#shape').value, fr = $('#free').checked;
+  const j = await getJson(`https://api.openverse.org/v1/images/?q=${encodeURIComponent(q)}&page_size=40&page=${page}` + (ar ? `&aspect_ratio=${ar}` : '') + (fr ? '&license_type=commercial' : ''));
   return (j.results || []).map(r => ({
     title: r.title || 'Untitled', text: [r.title, (r.tags || []).map(t => t.name).join(' ')].join(' '),
-    thumb: r.thumbnail || r.url, full: r.url, page: r.foreign_landing_url || r.url,
+    thumb: r.thumbnail || r.url, full: r.url, w: r.width, h: r.height, page: r.foreign_landing_url || r.url,
     src: 'Openverse' + (r.license ? ' · ' + r.license.toUpperCase() : ''), kind: 'image'
   }));
 }
 
-async function commons(q, ftype, kindTag, extList) {
-  const u = 'https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrnamespace=6&gsrlimit=40'
+async function commons(q, ftype, kindTag, extList, page = 1) {
+  const u = 'https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrnamespace=6&gsrlimit=40&gsroffset=' + ((page - 1) * 40)
     + '&gsrsearch=' + encodeURIComponent(`filetype:${ftype} ${q}`)
-    + '&prop=imageinfo&iiprop=url|mime|extmetadata&iiurlwidth=480';
+    + '&prop=imageinfo&iiprop=url|mime|size|extmetadata&iiurlwidth=480';
   const j = await getJson(u);
   const pages = Object.values((j.query && j.query.pages) || {}).sort((a, b) => a.index - b.index);
   return pages.map(p => {
@@ -173,17 +182,17 @@ async function commons(q, ftype, kindTag, extList) {
     if (extList && extList.length && !extList.includes(ext)) return null;
     return {
       title: tidyTitle(p.title), text: tidyTitle(p.title) + ' ' + desc,
-      thumb: ii.thumburl || '', full: ii.url, page: ii.descriptionurl, mime: ii.mime, ext,
+      thumb: ii.thumburl || '', full: ii.url, w: ii.width, h: ii.height, page: ii.descriptionurl, mime: ii.mime, ext,
       src: 'Wikimedia Commons', kind: kindTag
     };
   }).filter(Boolean);
 }
 
-async function archive(q, mediatype, kindTag, extList) {
+async function archive(q, mediatype, kindTag, extList, page = 1) {
   let query = `(${q.replace(/"/g, '\\"')}) AND mediatype:(${mediatype})`;
   if (extList && extList.length) query += ` AND format:(${extList.join(' OR ')})`;
   const ps = new URLSearchParams();
-  ps.set('q', query); ps.set('rows', '40'); ps.set('output', 'json'); ps.set('sort[]', 'downloads desc');
+  ps.set('q', query); ps.set('rows', '40'); ps.set('page', page); ps.set('output', 'json'); ps.set('sort[]', 'downloads desc');
   ['identifier', 'title', 'description', 'mediatype'].forEach(f => ps.append('fl[]', f));
   const j = await getJson('https://archive.org/advancedsearch.php?' + ps.toString());
   return ((j.response && j.response.docs) || []).map(d => ({
@@ -197,95 +206,163 @@ async function archive(q, mediatype, kindTag, extList) {
   }));
 }
 
-// ---------- run ----------
-async function run() {
-  try { await runInner(); } catch (e) { $('#status').textContent = 'Something went wrong: ' + (e.message || e) + '. Try again.'; $('#go').disabled = false; }
+async function nasa(q, media, kindTag, page = 1) {
+  const j = await getJson(`https://images-api.nasa.gov/search?q=${encodeURIComponent(q)}&media_type=${media}&page=${page}&page_size=40`);
+  return ((j.collection && j.collection.items) || []).map(it => {
+    const d = (it.data || [])[0] || {}, th = (it.links || [])[0], pg = `https://images.nasa.gov/details/${d.nasa_id}`;
+    if (!th) return null;
+    return { title: d.title || 'NASA', text: [d.title, d.description, (d.keywords || []).join(' ')].join(' '), thumb: th.href,
+      full: media === 'video' ? pg : th.href.replace('~thumb', '~medium'), page: pg, src: 'NASA', kind: kindTag, isNasa: true, nasaId: d.nasa_id };
+  }).filter(Boolean);
 }
-async function runInner() {
+async function artic(q, page = 1) {
+  const j = await getJson(`https://api.artic.edu/api/v1/artworks/search?q=${encodeURIComponent(q)}&page=${page}&limit=40&query[term][is_public_domain]=true&fields=id,title,image_id,artist_display`);
+  return (j.data || []).filter(d => d.image_id).map(d => ({ title: d.title, text: d.title + ' ' + (d.artist_display || ''),
+    thumb: `https://www.artic.edu/iiif/2/${d.image_id}/full/400,/0/default.jpg`, full: `https://www.artic.edu/iiif/2/${d.image_id}/full/1200,/0/default.jpg`,
+    page: `https://www.artic.edu/artworks/${d.id}`, src: 'Art Institute · Public domain', kind: 'image' }));
+}
+
+async function cleveland(q, page = 1) {
+  const j = await getJson(`https://openaccess-api.clevelandart.org/api/artworks/?q=${encodeURIComponent(q)}&has_image=1&limit=40&skip=${(page - 1) * 40}`);
+  return (j.data || []).filter(d => d.images && d.images.web).map(d => ({ title: d.title, text: d.title + ' ' + (d.creators || []).map(c => c.description).join(' '),
+    thumb: d.images.web.url, full: (d.images.print || d.images.web).url, page: d.url, src: 'Cleveland Museum · Open access', kind: 'image' }));
+}
+async function vam(q, page = 1) {
+  const j = await getJson(`https://api.vam.ac.uk/v2/objects/search?q=${encodeURIComponent(q)}&images_exist=1&page_size=40&page=${page}`);
+  return (j.records || []).filter(r => r._primaryImageId).map(r => { const t = r._primaryTitle || r.objectType || 'V&A object', fm = `https://framemark.vam.ac.uk/collections/${r._primaryImageId}/full/`;
+    return { title: t, text: [t, r.objectType, r._primaryMaker && r._primaryMaker.name, r._primaryPlace].join(' '), thumb: fm + '!400,400/0/default.jpg', full: fm + '!1200,1200/0/default.jpg', page: `https://collections.vam.ac.uk/item/${r.systemNumber}/`, src: 'V&A Museum', kind: 'image' }; });
+}
+async function wellcome(q, page = 1) {
+  const j = await getJson(`https://api.wellcomecollection.org/catalogue/v2/images?query=${encodeURIComponent(q)}&pageSize=40&page=${page}`);
+  return (j.results || []).filter(r => r.thumbnail && r.thumbnail.url).map(r => { const sc = r.source || {}, t = sc.title || 'Wellcome image';
+    return { title: t, text: t + ' ' + (sc.contributors || []).map(c => c.agent && c.agent.label).join(' '), thumb: r.thumbnail.url, full: r.thumbnail.url, page: `https://wellcomecollection.org/works/${sc.id}`, src: 'Wellcome Collection', kind: 'image' }; });
+}
+async function europeana(q, page = 1) {
+  const j = await getJson(`https://api.europeana.eu/record/v2/search.json?wskey=api2demo&query=${encodeURIComponent(q)}&media=true&thumbnail=true&qf=TYPE:IMAGE&rows=40&start=${(page - 1) * 40 + 1}`);
+  return (j.items || []).filter(i => i.edmPreview).map(i => ({ title: (i.title || ['Untitled'])[0], text: [].concat(i.title || [], i.dcCreator || [], i.dcDescription || []).join(' '),
+    thumb: i.edmPreview[0], full: i.edmPreview[0], page: i.guid, src: 'Europeana', kind: 'image' }));
+}
+async function inat(q, page = 1) {
+  const j = await getJson(`https://api.inaturalist.org/v1/observations?q=${encodeURIComponent(q)}&photos=true&per_page=40&page=${page}&photo_license=cc0,cc-by,cc-by-sa,cc-by-nc,cc-by-nc-sa&order_by=votes`);
+  return (j.results || []).filter(o => o.photos && o.photos[0]).map(o => { const ph = o.photos[0], t = o.taxon || {};
+    return { title: t.preferred_common_name || t.name || o.species_guess || 'Observation', text: [t.preferred_common_name, t.name, o.species_guess, o.place_guess].join(' '),
+      thumb: ph.url.replace('square', 'medium'), full: ph.url.replace('square', 'large'), page: o.uri, src: 'iNaturalist · ' + (ph.license_code || '').toUpperCase(), kind: 'image' }; });
+}
+async function sepia(q, page = 1) {
+  const j = await getJson(`https://sepiasearch.org/api/v1/search/videos?search=${encodeURIComponent(q)}&count=40&start=${(page - 1) * 40}`);
+  return (j.data || []).map(v => ({ title: v.name, text: v.name + ' ' + (v.description || '') + ' ' + (v.tags || []).join(' '), thumb: v.thumbnailUrl, full: v.url,
+    embed: v.embedUrl, page: v.url, src: 'PeerTube · ' + ((v.account && v.account.host) || ''), kind: 'video' }));
+}
+async function gutenberg(q, extList, page = 1) {
+  const j = await getJson(`https://gutendex.com/books/?search=${encodeURIComponent(q)}&page=${page}`);
+  return (j.results || []).map(b => { const f = b.formats || {};
+    const av = { epub: f['application/epub+zip'], pdf: f['application/pdf'], html: f['text/html'], txt: f['text/plain; charset=utf-8'] || f['text/plain'], mobi: f['application/x-mobipocket-ebook'] };
+    const ext = extList.length ? extList.find(e => av[e]) : ['epub', 'pdf', 'html', 'txt', 'mobi'].find(e => av[e]);
+    if (!ext) return null;
+    return { title: b.title, text: b.title + ' ' + (b.authors || []).map(a => a.name).join(' '), thumb: f['image/jpeg'] || '', full: av[ext], page: `https://www.gutenberg.org/ebooks/${b.id}`, ext, src: 'Project Gutenberg', kind: 'file' }; }).filter(Boolean);
+}
+async function openalex(q, extList, page = 1) {
+  if (extList.length && !extList.includes('pdf')) return [];
+  const j = await getJson(`https://api.openalex.org/works?search=${encodeURIComponent(q)}&filter=open_access.is_oa:true&per-page=40&page=${page}`);
+  return (j.results || []).map(w => { const loc = w.best_oa_location || {}, u = loc.pdf_url || (w.open_access || {}).oa_url; if (!u) return null;
+    return { title: w.display_name || 'Paper', text: (w.display_name || '') + ' ' + (w.authorships || []).map(a => a.author.display_name).join(' '), thumb: '', full: u, page: w.doi || w.id, ext: loc.pdf_url ? 'pdf' : 'html', src: 'OpenAlex · Open-access papers', kind: 'file' }; }).filter(Boolean);
+}
+
+// ---------- run ----------
+async function run(m) {
+  try { await runInner(m === true); } catch (e) { $('#status').textContent = 'Something went wrong: ' + (e.message || e) + '. Try again.'; $('#go').disabled = false; }
+}
+let page = 1, acc = [], saved = [], showSaved = false, cur = 0;
+try { saved = JSON.parse(localStorage.getItem('ef_saved') || '[]'); } catch (e) {}
+const persist = () => { try { localStorage.setItem('ef_saved', JSON.stringify(saved)); } catch (e) {} };
+async function runInner(more) {
   const q = $('#q').value.trim();
   if (!q) { $('#q').focus(); return; }
-  const strict = $('#strict').checked;
-  const terms = parseTerms(q);
+  if (!navigator.onLine) { $('#status').textContent = 'You are offline. Connect to the internet and search again.'; return; }
+  showSaved = false;
+  if (more) page++; else { page = 1; acc = []; $('#grid').innerHTML = ''; }
+  const strict = $('#strict').checked, terms = parseTerms(q), nterms = terms.map(norm);
   const plain = terms.map(t => t.includes(' ') ? `"${t}"` : t).join(' ');
   const extList = kind === 'file' ? $('#ext').value.toLowerCase().split(/[\s,]+/).map(s => s.replace('.', '')).filter(Boolean) : [];
-
-  if (!navigator.onLine) { $('#status').textContent = 'You are offline. Connect to the internet and search again.'; return; }
-  $('#go').disabled = true; $('#grid').innerHTML = '';
-  $('#status').textContent = 'Searching…';
-
-  const jobs = kind === 'image'
-    ? [openverse(plain), commons(plain, 'bitmap', 'image'), archive(plain, 'image', 'image')]
+  $('#go').disabled = true; $('#more').hidden = true; $('#status').textContent = 'Searching…';
+  const P = page;
+  const J = kind === 'image'
+    ? [['Openverse', openverse(plain, P)], ['Wikimedia', commons(plain, 'bitmap', 'image', null, P)], ['Internet Archive', archive(plain, 'image', 'image', null, P)], ['NASA', nasa(plain, 'image', 'image', P)], ['Art Institute', artic(plain, P)], ['Cleveland', cleveland(plain, P)], ['V&A', vam(plain, P)], ['Wellcome', wellcome(plain, P)], ['Europeana', europeana(plain, P)], ['iNaturalist', inat(plain, P)]]
     : kind === 'video'
-    ? [commons(plain, 'video', 'video'), archive(plain, 'movies', 'video')]
-    : [archive(plain, extList.length ? 'texts OR software OR data OR audio OR image OR movies' : 'texts OR software OR data', 'file', extList),
-       commons(plain, 'office', 'file', extList), commons(plain, 'archive', 'file', extList)];
-
-  const names = kind === 'image' ? ['Openverse', 'Wikimedia', 'Internet Archive']
-    : kind === 'video' ? ['Wikimedia', 'Internet Archive'] : ['Internet Archive', 'Wikimedia', 'Wikimedia'];
-  const settled = await Promise.allSettled(jobs);
-  const failedNames = [...new Set(settled.map((s, i) => s.status === 'rejected' ? names[i] : null).filter(Boolean))];
-  const failed = failedNames.length;
-  let all = settled.flatMap(s => s.status === 'fulfilled' ? s.value : []);
-  const found = all.length;
-  const nterms = terms.map(norm);
-
-  if (strict) all = all.filter(it => { const h = norm(it.text); return nterms.every(t => h.includes(t)); });
-
-  // de-duplicate by link
-  const seen = new Set(); all = all.filter(it => !seen.has(it.full) && seen.add(it.full));
-  // interleave sources so no single source floods the page
-  const by = {}; all.forEach(it => (by[it.src.split(' ·')[0]] ||= []).push(it));
+    ? [['Wikimedia', commons(plain, 'video', 'video', null, P)], ['Internet Archive', archive(plain, 'movies', 'video', null, P)], ['NASA', nasa(plain, 'video', 'video', P)], ['PeerTube', sepia(plain, P)]]
+    : [['Internet Archive', archive(plain, extList.length ? 'texts OR software OR data OR audio OR image OR movies' : 'texts OR software OR data', 'file', extList, P)], ['Wikimedia docs', commons(plain, 'office', 'file', extList, P)], ['Wikimedia archives', commons(plain, 'archive', 'file', extList, P)], ['Gutenberg', gutenberg(plain, extList, P)], ['OpenAlex', openalex(plain, extList, P)]];
+  const settled = await Promise.allSettled(J.map(x => x[1]));
+  const failedNames = J.filter((x, i) => settled[i].status === 'rejected').map(x => x[0]);
+  let got = settled.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+  const found = got.length;
+  if (strict) got = got.filter(it => { const h = norm(it.text); return nterms.every(t => h.includes(t)); });
+  const sh = $('#shape').value;
+  if (kind === 'image' && sh) got = got.filter(it => !it.w || !it.h || (sh === 'wide' ? it.w > it.h * 1.2 : sh === 'tall' ? it.h > it.w * 1.2 : Math.abs(it.w - it.h) <= Math.min(it.w, it.h) * 0.2));
+  const seen = new Set(acc.map(i => i.full)); got = got.filter(it => !seen.has(it.full) && seen.add(it.full));
+  const by = {}; got.forEach(it => (by[it.src.split(' ·')[0]] ||= []).push(it));
   const lists = Object.values(by), mixed = [];
   for (let i = 0; lists.some(l => i < l.length); i++) lists.forEach(l => l[i] && mixed.push(l[i]));
-
-  render(mixed);
+  acc.push(...mixed); render(acc);
   let msg;
-  if (mixed.length) {
-    msg = `<b>${mixed.length}</b> exact result${mixed.length === 1 ? '' : 's'}` + (strict && found > mixed.length ? ` (hid ${found - mixed.length} that didn't match every word)` : '');
-  } else if (failed === jobs.length) {
-    msg = 'Could not reach any source. Check your connection, then <a href="#" id="retry">try again</a>.';
-  } else if (strict && found > 0) {
-    msg = `No result matched every word, but ${found} looser match${found === 1 ? '' : 'es'} exist. <a href="#" id="loose">Show them</a>`;
-  } else {
-    msg = 'Nothing found. Try fewer or different words.';
-  }
-  if (failed && failed < jobs.length) msg += ` · ${failedNames.join(', ')} didn't respond`;
+  if (acc.length) msg = `<b>${acc.length}</b> exact result${acc.length === 1 ? '' : 's'}` + (strict && !more && found > mixed.length ? ` (hid ${found - mixed.length} that didn't match every word)` : '');
+  else if (failedNames.length === J.length) msg = 'Could not reach any source. Check your connection, then <a href="#" id="retry">try again</a>.';
+  else if (strict && found > 0) msg = `No result matched every word, but ${found} looser match${found === 1 ? '' : 'es'} exist. <a href="#" id="loose">Show them</a>`;
+  else msg = 'Nothing found. Try fewer or different words.';
+  if (failedNames.length && failedNames.length < J.length) msg += ` · ${failedNames.join(', ')} didn't respond`;
   $('#status').innerHTML = msg;
   const rl = $('#retry'); if (rl) rl.onclick = e => { e.preventDefault(); run(); };
   const ll = $('#loose'); if (ll) ll.onclick = e => { e.preventDefault(); $('#strict').checked = false; run(); };
+  $('#more').hidden = !found;
   $('#go').disabled = false;
 }
 
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 function render(items) {
-  $('#grid').innerHTML = items.map((it, i) => `
-    <div class="item">
-      ${it.thumb ? `<img class="thumb" loading="lazy" src="${esc(it.thumb)}" alt="" data-i="${i}" onerror="this.outerHTML='<div class=&quot;thumb ph&quot; data-i=&quot;${i}&quot;>${esc((it.ext || it.kind).toUpperCase())}</div>'">`
-                  : `<div class="thumb ph" data-i="${i}">${esc((it.ext || it.kind).toUpperCase())}</div>`}
-      <div class="meta">
-        <div class="title">${esc(it.title)}</div>
-        <div class="src">${esc(it.src)}${it.ext ? ' · .' + esc(it.ext) : ''}</div>
-        <div class="acts">
-          <button type="button" data-i="${i}">View</button>
-          <a class="p" href="${esc(it.full)}" target="_blank" rel="noopener">${it.isArchive && it.kind === 'file' ? 'Files' : 'Get'}</a>
-        </div>
-      </div>
-    </div>`).join('');
   window.__items = items;
+  $('#grid').innerHTML = items.map((it, i) => {
+    const ph = esc((it.ext || it.kind).toUpperCase()), on = saved.some(x => x.full === it.full);
+    return `<div class="item">
+      ${it.thumb ? `<img class="thumb" loading="lazy" src="${esc(it.thumb)}" alt="" data-i="${i}" onerror="this.outerHTML='<div class=&quot;thumb ph&quot; data-i=&quot;${i}&quot;>${ph}</div>'">` : `<div class="thumb ph" data-i="${i}">${ph}</div>`}
+      <div class="meta"><div class="title">${esc(it.title)}</div>
+        <div class="src">${esc(it.src)}${it.ext ? ' · .' + esc(it.ext) : ''}${it.w ? ' · ' + it.w + '×' + it.h : ''}</div>
+        <div class="acts"><button type="button" data-i="${i}">View</button><a class="p" href="${esc(it.full)}" target="_blank" rel="noopener">${it.isArchive && it.kind === 'file' ? 'Files' : 'Get'}</a><button type="button" class="star" data-s="${i}" aria-label="Save">${on ? '★' : '☆'}</button></div>
+      </div></div>`;
+  }).join('');
+}
+
+async function show(i) {
+  const L = window.__items || []; if (!L[i]) return;
+  cur = i; const it = L[i], st = $('#stage');
+  $('#open').href = it.page; if (!$('#dlg').open) $('#dlg').showModal();
+  if (it.kind === 'video' && it.isNasa) {
+    st.innerHTML = '<p class="src">Loading video…</p>';
+    let v = '';
+    try { const a = await getJson(`https://images-api.nasa.gov/asset/${it.nasaId}`); const hs = a.collection.items.map(x => x.href);
+      v = (hs.find(h => /~mobile\.mp4$/i.test(h)) || hs.find(h => /~medium\.mp4$/i.test(h)) || hs.find(h => /\.mp4$/i.test(h)) || '').replace('http://', 'https://'); } catch (e) {}
+    if (cur !== i) return;
+    st.innerHTML = v ? `<video src="${esc(v)}" controls playsinline></video>` : '<p>Could not load this video here. Use "Open source page".</p>';
+  } else if (it.kind === 'video' && it.embed) st.innerHTML = `<iframe src="${esc(it.embed)}" allowfullscreen></iframe>`;
+  else if (it.kind === 'video') st.innerHTML = `<video src="${esc(it.full)}" controls playsinline></video>`;
+  else if (it.kind === 'image') st.innerHTML = `<img src="${esc(it.full)}" alt="${esc(it.title)}" onerror="this.outerHTML='<p>Could not load the full image. Use Open source page.</p>'">`;
+  else st.innerHTML = `<p><b>${esc(it.title)}</b></p><p class="src">${esc(it.src)}</p>`;
 }
 
 $('#grid').addEventListener('click', e => {
-  const el = e.target.closest('[data-i]'); if (!el) return;
-  const it = window.__items[+el.dataset.i]; if (!it) return;
-  const st = $('#stage');
-  if (it.kind === 'video' && it.embed) st.innerHTML = `<iframe src="${esc(it.embed)}" allowfullscreen></iframe>`;
-  else if (it.kind === 'video') st.innerHTML = `<video src="${esc(it.full)}" controls playsinline></video>`;
-  else if (it.kind === 'image') st.innerHTML = `<img src="${esc(it.full)}" alt="${esc(it.title)}">`;
-  else st.innerHTML = `<p><b>${esc(it.title)}</b></p><p class="src">${esc(it.src)}</p>`;
-  $('#open').href = it.page;
-  $('#dlg').showModal();
+  const s = e.target.closest('[data-s]');
+  if (s) {
+    const it = window.__items[+s.dataset.s], k = saved.findIndex(x => x.full === it.full);
+    if (k >= 0) saved.splice(k, 1); else saved.unshift(it);
+    persist();
+    if (showSaved) { render(saved); $('#status').innerHTML = `<b>${saved.length}</b> saved`; } else s.textContent = k >= 0 ? '☆' : '★';
+    return;
+  }
+  const el = e.target.closest('[data-i]'); if (el) show(+el.dataset.i);
 });
+$('#favbtn').onclick = () => { showSaved = true; $('#more').hidden = true; render(saved); $('#status').innerHTML = saved.length ? `<b>${saved.length}</b> saved` : 'Nothing saved yet. Tap ☆ on any result.'; };
+$('#more').onclick = () => run(true);
+$('#prev').onclick = () => show(cur - 1);
+$('#next').onclick = () => show(cur + 1);
 </script>
 </body>
 </html>
